@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2048 - Base Blockchain Game</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.11.0/dist/ethers.umd.min.js"></script>
+    <style>
+        :root { --bg:#faf8ef; --text:#776e65; --grid-bg:#bbada0; --cell-empty:#cdc1b4; --accent:#8f7a66; --btn:#8f7a66; --btn-hover:#7f6a56; }
+        body { font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background:var(--bg); color:var(--text); margin:0; padding:20px; display:flex; flex-direction:column; align-items:center; min-height:100vh; }
+        .container { width:100%; max-width:500px; }
+        header { display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; }
+        h1 { margin:0; font-size:2.2rem; color:var(--text); }
+        .score-box { display:flex; gap:10px; }
+        .score { background:#bbada0; padding:8px 12px; border-radius:6px; text-align:center; color:white; min-width:70px; }
+        .score span { display:block; font-size:0.8rem; opacity:0.8; }
+        .score strong { font-size:1.3rem; display:block; }
+        .rules-box { background:#fff3e0; border-left:4px solid #ff9800; padding:12px; margin:15px 0; font-size:0.95rem; line-height:1.5; border-radius:6px; font-weight: 500; color:#5a4a3a; }
+        .network-status { display:flex; align-items:center; gap:8px; font-size:0.9rem; margin-bottom:15px; }
+        .status-dot { width:10px; height:10px; background:#ccc; border-radius:50%; }
+        .status-dot.active { background:#4caf50; }
+        .game-grid { background:var(--grid-bg); border-radius:8px; padding:10px; position:relative; margin-bottom:20px; }
+        .grid-container { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+        .cell { background:var(--cell-empty); aspect-ratio:1; border-radius:6px; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:1.8rem; color:#776e65; transition:all 0.15s ease; }
+        .tile-2{background:#eee4da}.tile-4{background:#ede0c8}.tile-8{background:#f2b179;color:#f9f6f2}.tile-16{background:#f59563;color:#f9f6f2}.tile-32{background:#f67c5f;color:#f9f6f2}.tile-64{background:#f65e3b;color:#f9f6f2}.tile-128{background:#edcf72;color:#f9f6f2;font-size:1.5rem}.tile-256{background:#edcc61;color:#f9f6f2;font-size:1.5rem}.tile-512{background:#edc850;color:#f9f6f2;font-size:1.5rem}.tile-1024{background:#edc53f;color:#f9f6f2;font-size:1.3rem}.tile-2048{background:#edc22e;color:#f9f6f2;font-size:1.3rem}
+        .controls { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-bottom:15px; }
+        button { background:var(--btn); color:white; border:none; padding:10px 16px; border-radius:6px; font-size:0.95rem; cursor:pointer; transition:background 0.2s; }
+        button:hover:not(:disabled) { background:var(--btn-hover); }
+        button:disabled { opacity:0.6; cursor:not-allowed; }
+        .btn-outline { background:transparent; border:2px solid var(--btn); color:var(--btn); }
+        .btn-outline:hover { background:var(--btn); color:white; }
+        .modal { display:none; position:fixed; top:0;left:0;width:100%;height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:100; }
+        .modal.active { display:flex; }
+        .modal-content { background:white; padding:20px; border-radius:8px; max-width:450px; width:90%; max-height:80vh; overflow-y:auto; }
+        table { width:100%; border-collapse:collapse; margin-top:10px; }
+        th,td { padding:8px; text-align:left; border-bottom:1px solid #eee; }
+        th { background:#f5f5f5; }
+        .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:white; padding:10px 20px; border-radius:6px; opacity:0; transition:opacity 0.3s; pointer-events:none; z-index:200; }
+        .toast.show { opacity:1; }
+        .game-over-overlay { position:absolute; top:0;left:0;width:100%;height:100%; background:rgba(238,228,218,0.7); display:none; flex-direction:column; align-items:center; justify-content:center; border-radius:8px; }
+        .game-over-overlay.active { display:flex; }
+        .game-over-overlay h2 { margin-bottom:10px; color:var(--text); }
+        .swipe-hint { font-size:0.8rem; color:#888; margin-top:10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>2048</h1>
+            <div class="score-box">                <div class="score"><span>Skor</span><strong id="score">0</strong></div>
+                <div class="score"><span>Tertinggi</span><strong id="high-score">0</strong></div>
+            </div>
+        </header>
+
+        <div class="network-status">
+            <span class="status-dot" id="net-dot"></span>
+            <span id="net-status">⛓ Base Network: <strong>Menunggu Wallet</strong></span>
+        </div>
+
+        <div class="controls">
+            <button id="btn-connect">🔗 Hubungkan Wallet Base</button>
+            <button id="btn-leaderboard" class="btn-outline">🏆 Leaderboard On-Chain</button>
+        </div>
+
+        <div class="rules-box">
+            Push your limits, great rewards await for you. Every move will record a transaction on the base chain.
+        </div>
+
+        <div class="game-grid">
+            <div class="grid-container" id="grid"></div>
+            <div class="game-over-overlay" id="game-over">
+                <h2>Game Over!</h2>
+                <p>Tidak ada langkah tersisa</p>
+                <button id="btn-restart">Main Lagi</button>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="btn-play" disabled>▶️ Bermain</button>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem;">
+                <input type="checkbox" id="demo-mode"> 🎮 Demo Mode (Tanpa Fee)
+            </label>
+        </div>
+        <p class="swipe-hint">⌨️ Gunakan ↑↓←→ atau geser layar</p>
+    </div>
+
+    <div class="modal" id="leaderboard-modal">
+        <div class="modal-content">
+            <h2>🏆 Leaderboard On-Chain</h2>
+            <p style="font-size:0.8rem;color:#666;margin-bottom:10px;">Diupdate otomatis setiap 24 jam. Data tersimpan permanen di Base Blockchain.</p>
+            <table>
+                <thead><tr><th>#</th><th>Wallet</th><th>Skor</th><th>Tanggal</th></tr></thead>
+                <tbody id="leaderboard-body"></tbody>
+            </table>
+            <div style="margin-top:15px;text-align:right;"><button onclick="document.getElementById('leaderboard-modal').classList.remove('active')">Tutup</button></div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    <script>
+        // ⚙️ KONFIGURASI
+        const RECEIVER = "0xD8D703aF0986cB3E40A57967cF8E7f8E4E";
+        const START_FEE_ETH = "0.00005"; // Fixed ETH fee
+        const BASE_CHAIN_ID = 8453;
+        const BACKEND_URL = "http://localhost:3000"; // Ganti dengan URL backend Anda
+        const CONTRACT_ADDRESS = "0xYourContractAddressHere"; // Ganti setelah deploy
+        const CONTRACT_ABI = [
+            "function getLeaderboard() external view returns (tuple(address player, uint256 score, uint256 timestamp)[])",
+            "function topScores(uint256 index) external view returns (address player, uint256 score, uint256 timestamp)"
+        ];
+
+        // State
+        let provider, signer, walletAddress;
+        let board = Array(4).fill().map(() => Array(4).fill(0));
+        let score = 0, isGameActive = false, isDemo = true;
+        let highScore = localStorage.getItem('base2048_highscore') || 0;
+
+        // DOM
+        const gridEl = document.getElementById('grid');
+        const scoreEl = document.getElementById('score');
+        const highScoreEl = document.getElementById('high-score');
+        const gameOverEl = document.getElementById('game-over');
+        const btnPlay = document.getElementById('btn-play');
+        const btnConnect = document.getElementById('btn-connect');
+        const btnLeaderboard = document.getElementById('btn-leaderboard');
+        const demoCheckbox = document.getElementById('demo-mode');
+        const netDot = document.getElementById('net-dot');
+        const netStatus = document.getElementById('net-status');
+        const toastEl = document.getElementById('toast');
+        const lbBody = document.getElementById('leaderboard-body');
+
+        highScoreEl.textContent = highScore;
+
+        function init() {
+            createGrid(); setupInput(); loadOnChainLeaderboard();
+            
+            btnConnect.addEventListener('click', connectWallet);
+            demoCheckbox.addEventListener('change', e => {
+                isDemo = e.target.checked;
+                btnPlay.disabled = !isDemo && !walletAddress;
+                showToast(isDemo ? "Mode Demo Aktif" : "Mode On-Chain Aktif");
+            });
+            btnPlay.addEventListener('click', startGame);
+            document.getElementById('btn-restart').addEventListener('click', () => { gameOverEl.classList.remove('active'); startGame(); });
+            btnLeaderboard.addEventListener('click', () => { document.getElementById('leaderboard-modal').classList.add('active'); loadOnChainLeaderboard(); });
+            updateNetworkStatus();
+        }
+        function createGrid() {
+            gridEl.innerHTML = '';
+            for(let i=0; i<16; i++) {
+                const c = document.createElement('div'); c.className='cell'; c.id=`cell-${i}`; gridEl.appendChild(c);
+            }
+            renderBoard();
+        }
+        function renderBoard() {
+            for(let r=0;r<4;r++) for(let c=0;c<4;c++) {
+                const idx=r*4+c, val=board[r][c], el=document.getElementById(`cell-${idx}`);
+                el.textContent=val>0?val:''; el.className=`cell ${val>0?'tile-'+val:''}`;
+            }
+            scoreEl.textContent=score; if(score>highScore){highScore=score; localStorage.setItem('base2048_highscore',score); highScoreEl.textContent=score;}
+        }
+
+        async function connectWallet() {
+            if(!window.ethereum) return showToast("❌ Wallet tidak terdeteksi");
+            try {
+                provider = new ethers.BrowserProvider(window.ethereum);
+                const net = await provider.getNetwork();
+                const chainId = Number(net.chainId);
+                
+                if(chainId !== BASE_CHAIN_ID) {
+                    showToast(`⚠️ Beralih ke Base...`);
+                    try {
+                        await window.ethereum.request({ 
+                            method: 'wallet_switchEthereumChain', 
+                            params: [{ chainId: `0x${BASE_CHAIN_ID.toString(16)}` }] 
+                        });
+                    } catch(switchErr) {
+                        if(switchErr.code === 4902) {
+                            await window.ethereum.request({
+                                method: 'wallet_addEthereumChain',
+                                params: [{
+                                    chainId: `0x${BASE_CHAIN_ID.toString(16)}`,
+                                    chainName: 'Base Mainnet',
+                                    nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+                                    rpcUrls: ['https://mainnet.base.org'],
+                                    blockExplorerUrls: ['https://basescan.org']
+                                }]
+                            });
+                        } else throw switchErr;
+                    }
+                }
+                
+                signer = await provider.getSigner(); 
+                walletAddress = await signer.getAddress();
+                btnConnect.textContent = `✅ ${walletAddress.slice(0,6)}...${walletAddress.slice(-4)}`; 
+                btnConnect.disabled = true;
+                isDemo = false;                 demoCheckbox.checked = false; 
+                btnPlay.disabled = false;
+                netDot.classList.add('active'); 
+                netStatus.innerHTML = `⛓ Base Network: <strong>Terhubung</strong>`;
+                showToast("Wallet terhubung!");
+            } catch(err) {
+                console.error("Connect error:", err);
+                showToast("❌ Gagal menghubungkan wallet");
+            }
+        }
+
+        // ✅ PAY START FEE (Fixed 0.00005 ETH)
+        async function payStartFee() {
+            if(isDemo || !signer) return true;
+            try {
+                const balance = await signer.getBalance();
+                const required = ethers.parseEther(START_FEE_ETH);
+                
+                if(balance < required) {
+                    showToast(`❌ Saldo tidak cukup! Perlu ${START_FEE_ETH} ETH`);
+                    return false;
+                }
+
+                const tx = await signer.sendTransaction({
+                    to: RECEIVER, 
+                    value: required
+                });
+                
+                showToast(`⏳ Memproses fee mulai...`);
+                await tx.wait();
+                showToast(`✅ Fee berhasil dikonfirmasi`);
+                return true;
+            } catch(err) {
+                console.error("Fee error:", err);
+                let msg = "Fee Mulai gagal";
+                if(err.code === "ACTION_REJECTED") msg = "Transaksi ditolak user";
+                if(err.message?.toLowerCase().includes("insufficient")) msg = "Saldo ETH tidak cukup";
+                showToast(`❌ ${msg}`);
+                return false;
+            }
+        }
+
+        function startGame() {
+            if(!isDemo) {
+                if(!signer) return showToast("⚠️ Hubungkan wallet dulu");
+                payStartFee().then(success => {
+                    if(success) initNewGame();
+                });
+            } else {
+                initNewGame();            }
+        }
+
+        function initNewGame() {
+            board = Array(4).fill().map(() => Array(4).fill(0)); 
+            score = 0; 
+            isGameActive = true;
+            addRandomTile(); 
+            addRandomTile(); 
+            renderBoard(); 
+            showToast("🎮 Permainan dimulai!");
+        }
+
+        function addRandomTile() {
+            const empty = []; 
+            for(let r=0;r<4;r++) for(let c=0;c<4;c++) if(board[r][c]===0) empty.push([r,c]);
+            if(empty.length) { 
+                const [r,c] = empty[Math.floor(Math.random()*empty.length)]; 
+                board[r][c] = Math.random()>0.1 ? 2 : 4; 
+            }
+        }
+
+        function handleMove(dir) {
+            if(!isGameActive) return;
+            let moved = false;
+            
+            const rot = (m, n) => {
+                let t = m;
+                for(let i=0; i<n; i++) t = t[0].map((_,i) => t.map(r => r[i]).reverse());
+                return t;
+            };
+            
+            const slide = (m) => {
+                let mv = false;
+                for(let r=0; r<4; r++) {
+                    let row = m[r].filter(v => v !== 0);
+                    let nr = [];
+                    for(let i=0; i<row.length; i++) {
+                        if(i+1 < row.length && row[i] === row[i+1]) {
+                            nr.push(row[i]*2);
+                            score += row[i]*2;
+                            i++;
+                            mv = true;
+                        } else {
+                            nr.push(row[i]);
+                        }
+                    }
+                    while(nr.length < 4) nr.push(0);
+                    if(m[r].join(',') !== nr.join(',')) mv = true;
+                    m[r] = nr;                }
+                return { m, mv };
+            };
+
+            // ✅ Mapping arah sudah diperbaiki
+            let temp = board.map(r => [...r]);
+            let r = { left: 0, up: 3, right: 2, down: 1 }[dir];
+            
+            temp = rot(temp, r); 
+            const res = slide(temp); 
+            temp = rot(temp, (4 - r) % 4);
+            
+            if(res.mv || moved) {
+                board = temp; 
+                addRandomTile(); 
+                renderBoard();
+                // ✅ Tidak ada fee per move. Hanya gas standar wallet jika ada aksi on-chain lain.
+                checkGameOver();
+            }
+        }
+
+        function checkGameOver() {
+            for(let r=0; r<4; r++) for(let c=0; c<4; c++) if(board[r][c]===0) return;
+            for(let r=0; r<4; r++) for(let c=0; c<4; c++) {
+                if(c<3 && board[r][c] === board[r][c+1]) return;
+                if(r<3 && board[r][c] === board[r+1][c]) return;
+            }
+            isGameActive = false; 
+            gameOverEl.classList.add('active'); 
+            submitScore();
+        }
+
+        async function submitScore() {
+            const player = walletAddress || "Demo";
+            try {
+                await fetch(`${BACKEND_URL}/submit`, {
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ player, score, timestamp: Date.now() })
+                });
+            } catch(e) { console.warn("Skor gagal dikirim ke backend:", e); }
+        }
+
+        async function loadOnChainLeaderboard() {
+            lbBody.innerHTML = '<tr><td colspan="4" style="text-align:center">⏳ Memuat data on-chain...</td></tr>';
+            try {
+                const p = window.ethereum ? new ethers.BrowserProvider(window.ethereum) : new ethers.JsonRpcProvider('https://mainnet.base.org');
+                const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, p);
+                const data = await contract.getLeaderboard();
+                if(data.length === 0) throw new Error("Belum ada data");                
+                lbBody.innerHTML = data.map((e, i) => `
+                    <tr>
+                        <td>${i+1}</td>
+                        <td>${e.player.slice(0,6)}...${e.player.slice(-4)}</td>
+                        <td><strong>${Number(e.score)}</strong></td>
+                        <td>${new Date(Number(e.timestamp)*1000).toLocaleDateString('id-ID')}</td>
+                    </tr>
+                `).join('');
+            } catch(e) {
+                lbBody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#d32f2f">⚠️ ${e.message || "Gagal memuat leaderboard"}</td></tr>`;
+            }
+        }
+
+        function setupInput() {
+            document.addEventListener('keydown', e => {
+                const m = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
+                if(m[e.key]) { e.preventDefault(); handleMove(m[e.key]); }
+            });
+            let sx, sy;
+            document.querySelector('.game-grid').addEventListener('touchstart', e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; });
+            document.querySelector('.game-grid').addEventListener('touchend', e => {
+                if(!sx || !sy) return;
+                const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+                handleMove(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+                sx = sy = null;
+            });
+        }
+        function updateNetworkStatus() { netDot.classList.toggle('active', !!walletAddress); }
+        function showToast(msg) { toastEl.textContent = msg; toastEl.classList.add('show'); setTimeout(() => toastEl.classList.remove('show'), 3000); }
+        init();
+    </script>
+</body>
+</html>
